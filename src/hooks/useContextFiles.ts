@@ -1,7 +1,8 @@
+// Final Build Version: 2.2.0 - Stable Deployment
 import { useState, useCallback } from 'react';
 import type { ContextFile } from '@/types';
 
-// Demo files for showcase (since we can't access server filesystem from browser)
+// Demo files for fallback (when server files are unavailable)
 const DEMO_FILES: ContextFile[] = [
   {
     id: '1',
@@ -82,40 +83,149 @@ Supported File Types:
   },
 ];
 
-export function useContextFiles() {
+interface FileListResponse {
+  files: {
+    name: string;
+    path: string;
+    size: number;
+    type: string;
+    lastModified: string;
+  }[];
+}
+
+interface FileContentResponse {
+  content: string;
+}
+
+export function useContextFiles(filesApiPath: string = '/api/files') {
   const [files, setFiles] = useState<ContextFile[]>(DEMO_FILES);
   const [selectedFile, setSelectedFile] = useState<ContextFile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [isUsingDemoFiles, setIsUsingDemoFiles] = useState(true);
+
+  const getFileType = (filename: string): string => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const typeMap: Record<string, string> = {
+      'md': 'markdown',
+      'json': 'json',
+      'txt': 'text',
+      'js': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'jsx': 'javascript',
+      'py': 'python',
+      'html': 'html',
+      'css': 'css',
+    };
+    return typeMap[ext] || 'text';
+  };
 
   const syncFiles = useCallback(async () => {
     setIsSyncing(true);
+    setLastError(null);
     
-    // Simulate sync delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // In production, this would fetch from the server
-    setFiles(DEMO_FILES.map(f => ({
-      ...f,
-      lastModified: new Date(),
-    })));
-    
-    setIsSyncing(false);
-  }, []);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(filesApiPath, {
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}`);
+      }
+
+      const data: FileListResponse = await response.json();
+      
+      const serverFiles: ContextFile[] = data.files.map((f, index) => ({
+        id: `server-${index}-${f.name}`,
+        name: f.name,
+        path: f.path,
+        size: f.size,
+        type: getFileType(f.name),
+        lastModified: new Date(f.lastModified),
+        content: undefined, // Will be loaded on demand
+      }));
+
+      setFiles(serverFiles);
+      setIsUsingDemoFiles(false);
+      setLastError(null);
+    } catch (error) {
+      console.warn('Failed to fetch files from server, using demo files:', error);
+      
+      let errorMessage = 'sync_failed';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'timeout';
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'network_error';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setLastError(errorMessage);
+      setIsUsingDemoFiles(true);
+      
+      // Fallback to demo files with refreshed timestamps
+      setFiles(DEMO_FILES.map(f => ({
+        ...f,
+        lastModified: new Date(),
+      })));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [filesApiPath]);
 
   const loadFileContent = useCallback(async (fileId: string) => {
     setIsLoading(true);
     
-    // Simulate loading delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
     const file = files.find(f => f.id === fileId);
-    if (file) {
-      setSelectedFile(file);
+    if (!file) {
+      setIsLoading(false);
+      return;
     }
-    
-    setIsLoading(false);
-  }, [files]);
+
+    // If content is already loaded (demo files), just select it
+    if (file.content) {
+      setSelectedFile(file);
+      setIsLoading(false);
+      return;
+    }
+
+    // Try to fetch content from server
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(`${filesApiPath}/${encodeURIComponent(file.name)}`, {
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to load file: ${response.status}`);
+      }
+
+      const data: FileContentResponse = await response.json();
+      
+      const updatedFile = { ...file, content: data.content };
+      setFiles(prev => prev.map(f => f.id === fileId ? updatedFile : f));
+      setSelectedFile(updatedFile);
+    } catch (error) {
+      console.warn('Failed to load file content:', error);
+      // Still select the file but without content
+      setSelectedFile(file);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [files, filesApiPath]);
 
   const addFile = useCallback((file: Omit<ContextFile, 'id'>) => {
     const newFile: ContextFile = {
@@ -141,6 +251,8 @@ export function useContextFiles() {
     selectedFile,
     isLoading,
     isSyncing,
+    lastError,
+    isUsingDemoFiles,
     syncFiles,
     loadFileContent,
     addFile,
