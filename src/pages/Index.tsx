@@ -1,5 +1,5 @@
-// System Build: v1.1.0-Production-Ready
-import { useState, useEffect, useCallback } from 'react';
+// Final Build Version: 2.2.0 - Stable Deployment
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from '@/components/Header';
@@ -8,40 +8,74 @@ import { ContextPreview } from '@/components/ContextPreview';
 import { ChatArea } from '@/components/ChatArea';
 import { useOllama } from '@/hooks/useOllama';
 import { useContextFiles } from '@/hooks/useContextFiles';
+import { useServerSettings } from '@/hooks/useServerSettings';
 import { useToast } from '@/hooks/use-toast';
 import type { Message } from '@/types';
 
 const Index = () => {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const { toast } = useToast();
-  const { serverStatus, isGenerating, checkHealth, generateResponse } = useOllama();
+  
+  // Server settings
+  const { settings, updateSettings, resetSettings, DEFAULT_SETTINGS } = useServerSettings();
+  
+  // Ollama hook with dynamic endpoint
+  const { serverStatus, isGenerating, checkHealth, generateResponse } = useOllama(settings.ollamaEndpoint);
+  
+  // Context files hook with dynamic API path
   const {
     files,
     selectedFile,
     isSyncing,
+    lastError,
+    isUsingDemoFiles,
     syncFiles,
     loadFileContent,
     removeFile,
     setSelectedFile,
     getActiveContextContent,
-  } = useContextFiles();
+  } = useContextFiles(settings.filesApiPath);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
 
-  // Set RTL on mount
+  // Set RTL on mount and language change
   useEffect(() => {
     document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = i18n.language;
   }, [i18n.language]);
 
-  // Check health on mount
+  // Check health on mount and when endpoint changes
   useEffect(() => {
     checkHealth();
-  }, [checkHealth]);
+  }, [checkHealth, settings.ollamaEndpoint]);
+
+  // Show sync error toast
+  useEffect(() => {
+    if (lastError && lastError !== 'sync_failed') {
+      toast({
+        variant: 'destructive',
+        title: t('errors.syncFailed'),
+        description: lastError === 'network_error' 
+          ? t('errors.networkError')
+          : lastError === 'timeout'
+          ? t('errors.timeoutError')
+          : lastError,
+      });
+    }
+  }, [lastError, toast, t]);
 
   const handleSendMessage = useCallback(async (content: string) => {
+    if (!serverStatus.isConnected) {
+      toast({
+        variant: 'destructive',
+        title: t('errors.connectionFailed'),
+        description: t('chat.serverOffline'),
+      });
+      return;
+    }
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -61,7 +95,13 @@ const Index = () => {
 
     try {
       const contextFiles = getActiveContextContent();
-      const response = await generateResponse(content, contextFiles);
+      const response = await generateResponse(
+        content, 
+        contextFiles,
+        settings.model,
+        settings.temperature,
+        settings.topP
+      );
 
       setMessages(prev => 
         prev.map(msg => 
@@ -74,11 +114,11 @@ const Index = () => {
       setMessages(prev => prev.filter(msg => msg.id !== loadingMessage.id));
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to generate response',
+        title: t('errors.connectionFailed'),
+        description: error instanceof Error ? error.message : t('errors.noResponse'),
       });
     }
-  }, [generateResponse, getActiveContextContent, toast]);
+  }, [serverStatus.isConnected, generateResponse, getActiveContextContent, settings, toast, t]);
 
   const handleSelectFile = useCallback((file: typeof selectedFile) => {
     if (file) {
@@ -86,6 +126,19 @@ const Index = () => {
       setPreviewOpen(true);
     }
   }, [loadFileContent]);
+
+  const handleSync = useCallback(async () => {
+    await syncFiles();
+    if (isUsingDemoFiles) {
+      toast({
+        title: t('sidebar.demoMode'),
+        description: t('errors.syncFailed'),
+      });
+    }
+  }, [syncFiles, isUsingDemoFiles, toast, t]);
+
+  // Memoize context files for export
+  const activeContextFiles = useMemo(() => getActiveContextContent(), [getActiveContextContent]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -96,6 +149,12 @@ const Index = () => {
         onTogglePreview={() => setPreviewOpen(prev => !prev)}
         onToggleSidebar={() => setSidebarOpen(prev => !prev)}
         sidebarOpen={sidebarOpen}
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        onResetSettings={resetSettings}
+        defaultSettings={DEFAULT_SETTINGS}
+        messages={messages}
+        contextFiles={activeContextFiles}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -109,7 +168,7 @@ const Index = () => {
             onToggle={() => setSidebarOpen(prev => !prev)}
             onSelectFile={handleSelectFile}
             onDeleteFile={removeFile}
-            onSync={syncFiles}
+            onSync={handleSync}
           />
         </div>
 
@@ -138,7 +197,7 @@ const Index = () => {
                   onToggle={() => setSidebarOpen(false)}
                   onSelectFile={handleSelectFile}
                   onDeleteFile={removeFile}
-                  onSync={syncFiles}
+                  onSync={handleSync}
                 />
               </motion.div>
             </motion.div>

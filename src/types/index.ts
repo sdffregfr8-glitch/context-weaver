@@ -32,6 +32,7 @@ export interface ServerStatus {
   lastChecked: Date | null;
   ollamaVersion?: string;
   availableModels?: string[];
+  error?: string | null;
 }
 
 export interface OllamaResponse {
