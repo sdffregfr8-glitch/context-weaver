@@ -1,4 +1,4 @@
-// Final Build Version: 2.2.0 - Stable Deployment
+// Final Build Version: 3.0.0 - Stable Deployment
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,7 +20,7 @@ const Index = () => {
   const { settings, updateSettings, resetSettings, DEFAULT_SETTINGS } = useServerSettings();
   
   // Ollama hook with dynamic endpoint
-  const { serverStatus, isGenerating, checkHealth, generateResponse } = useOllama(settings.ollamaEndpoint);
+  const { serverStatus, isGenerating, checkHealth, generateResponse, setOnDisconnect } = useOllama(settings.ollamaEndpoint);
   
   // Context files hook with dynamic API path
   const {
@@ -29,14 +29,16 @@ const Index = () => {
     isSyncing,
     lastError,
     isUsingDemoFiles,
+    selectedCount,
     syncFiles,
     loadFileContent,
+    toggleFileSelection,
     removeFile,
     setSelectedFile,
     getActiveContextContent,
   } = useContextFiles(settings.filesApiPath);
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Closed by default on mobile
   const [previewOpen, setPreviewOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
 
@@ -46,10 +48,22 @@ const Index = () => {
     document.documentElement.lang = i18n.language;
   }, [i18n.language]);
 
-  // Check health on mount and when endpoint changes
+  // Check if on desktop for sidebar default state
   useEffect(() => {
-    checkHealth();
-  }, [checkHealth, settings.ollamaEndpoint]);
+    const isDesktop = window.innerWidth >= 1024;
+    setSidebarOpen(isDesktop);
+  }, []);
+
+  // Set disconnect callback for auto alerts
+  useEffect(() => {
+    setOnDisconnect(() => {
+      toast({
+        variant: 'destructive',
+        title: t('chat.serverDisconnected'),
+        description: t('errors.networkError'),
+      });
+    });
+  }, [setOnDisconnect, toast, t]);
 
   // Show sync error toast
   useEffect(() => {
@@ -76,6 +90,16 @@ const Index = () => {
       return;
     }
 
+    // Check if any context is selected
+    const contextFiles = getActiveContextContent();
+    if (contextFiles.length === 0) {
+      toast({
+        variant: 'default',
+        title: t('chat.noContextSelected'),
+        description: t('sidebar.noContexts'),
+      });
+    }
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -94,7 +118,6 @@ const Index = () => {
     setMessages(prev => [...prev, userMessage, loadingMessage]);
 
     try {
-      const contextFiles = getActiveContextContent();
       const response = await generateResponse(
         content, 
         contextFiles,
@@ -137,6 +160,14 @@ const Index = () => {
     }
   }, [syncFiles, isUsingDemoFiles, toast, t]);
 
+  const handleClearChat = useCallback(() => {
+    setMessages([]);
+    toast({
+      title: t('actions.clear'),
+      description: t('chat.clearConfirmDesc'),
+    });
+  }, [toast, t]);
+
   // Memoize context files for export
   const activeContextFiles = useMemo(() => getActiveContextContent(), [getActiveContextContent]);
 
@@ -169,6 +200,8 @@ const Index = () => {
             onSelectFile={handleSelectFile}
             onDeleteFile={removeFile}
             onSync={handleSync}
+            onToggleSelection={toggleFileSelection}
+            selectedCount={selectedCount}
           />
         </div>
 
@@ -198,6 +231,8 @@ const Index = () => {
                   onSelectFile={handleSelectFile}
                   onDeleteFile={removeFile}
                   onSync={handleSync}
+                  onToggleSelection={toggleFileSelection}
+                  selectedCount={selectedCount}
                 />
               </motion.div>
             </motion.div>
@@ -211,6 +246,7 @@ const Index = () => {
             isLoading={isGenerating}
             onSendMessage={handleSendMessage}
             serverConnected={serverStatus.isConnected}
+            onClearChat={handleClearChat}
           />
         </main>
 

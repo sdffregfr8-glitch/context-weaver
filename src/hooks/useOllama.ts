@@ -1,8 +1,10 @@
-// Final Build Version: 2.2.0 - Stable Deployment
-import { useState, useCallback } from 'react';
+// Final Build Version: 3.0.0 - Stable Deployment
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { OllamaResponse, ServerStatus, ContextFile } from '@/types';
 
-export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
+const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+
+export function useOllama(endpoint: string = 'http://localhost:11434') {
   const [serverStatus, setServerStatus] = useState<ServerStatus>({
     isConnected: false,
     isChecking: false,
@@ -10,6 +12,8 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
     error: null,
   });
   const [isGenerating, setIsGenerating] = useState(false);
+  const previousConnectedRef = useRef<boolean | null>(null);
+  const onDisconnectCallbackRef = useRef<(() => void) | null>(null);
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     setServerStatus(prev => ({ ...prev, isChecking: true, error: null }));
@@ -27,6 +31,8 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
       
       if (response.ok) {
         const data = await response.json();
+        const wasDisconnected = previousConnectedRef.current === false;
+        
         setServerStatus({
           isConnected: true,
           isChecking: false,
@@ -34,6 +40,8 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
           availableModels: data.models?.map((m: { name: string }) => m.name) || [],
           error: null,
         });
+        
+        previousConnectedRef.current = true;
         return true;
       } else {
         throw new Error(`Server responded with status ${response.status}`);
@@ -52,15 +60,40 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
         }
       }
       
+      // Track disconnect event
+      const wasConnected = previousConnectedRef.current === true;
+      if (wasConnected && onDisconnectCallbackRef.current) {
+        onDisconnectCallbackRef.current();
+      }
+      
       setServerStatus({
         isConnected: false,
         isChecking: false,
         lastChecked: new Date(),
         error: errorMessage,
       });
+      
+      previousConnectedRef.current = false;
       return false;
     }
   }, [endpoint]);
+
+  // Auto health check every 30 seconds
+  useEffect(() => {
+    // Initial check
+    checkHealth();
+    
+    const intervalId = setInterval(() => {
+      checkHealth();
+    }, HEALTH_CHECK_INTERVAL);
+    
+    return () => clearInterval(intervalId);
+  }, [checkHealth]);
+
+  // Set disconnect callback
+  const setOnDisconnect = useCallback((callback: () => void) => {
+    onDisconnectCallbackRef.current = callback;
+  }, []);
 
   const generateResponse = useCallback(async (
     prompt: string,
@@ -72,11 +105,11 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
     setIsGenerating(true);
 
     try {
-      // Build context injection
+      // Build context injection from SELECTED files only
       let contextBlock = '';
       if (contextFiles.length > 0) {
         const contextParts = contextFiles
-          .filter(f => f.content)
+          .filter(f => f.content && f.isSelected)
           .map(f => `--- START: ${f.name} ---\n${f.content}\n--- END: ${f.name} ---`);
         
         if (contextParts.length > 0) {
@@ -140,5 +173,6 @@ export function useOllama(endpoint: string = 'http://5.182.18.219:11434') {
     isGenerating,
     checkHealth,
     generateResponse,
+    setOnDisconnect,
   };
 }

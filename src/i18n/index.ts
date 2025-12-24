@@ -23,6 +23,10 @@ const resources = {
         thinking: 'Thinking...',
         greeting: 'Hello! I\'m ready to analyze your documents. Load a context to get started.',
         serverOffline: 'Server is offline. Please check connection settings.',
+        clearConfirmTitle: 'Clear Chat?',
+        clearConfirmDesc: 'All messages will be permanently deleted. Are you sure?',
+        serverDisconnected: 'Ollama server disconnected',
+        noContextSelected: 'No context files selected',
       },
       status: {
         online: 'Connected',
@@ -103,6 +107,10 @@ const resources = {
         thinking: 'جاري التفكير...',
         greeting: 'مرحباً! أنا جاهز لتحليل مستنداتك. قم بتحميل سياق للبدء.',
         serverOffline: 'السيرفر غير متصل. يرجى التحقق من إعدادات الاتصال.',
+        clearConfirmTitle: 'مسح المحادثة؟',
+        clearConfirmDesc: 'سيتم حذف جميع الرسائل نهائياً. هل أنت متأكد؟',
+        serverDisconnected: 'انقطع الاتصال بخادم Ollama',
+        noContextSelected: 'لم يتم اختيار ملفات سياق',
       },
       status: {
         online: 'متصل',

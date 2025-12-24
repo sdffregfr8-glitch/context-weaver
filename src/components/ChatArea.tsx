@@ -1,8 +1,20 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Bot, Sparkles } from 'lucide-react';
+import { Bot, Sparkles, Trash2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import type { Message } from '@/types';
@@ -12,25 +24,102 @@ interface ChatAreaProps {
   isLoading: boolean;
   onSendMessage: (message: string) => void;
   serverConnected: boolean;
+  onClearChat: () => void;
 }
 
 export function ChatArea({ 
   messages, 
   isLoading, 
   onSendMessage,
-  serverConnected 
+  serverConnected,
+  onClearChat,
 }: ChatAreaProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // Smart auto-scroll: only scroll if user is near bottom
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current && !isUserScrolling) {
+      const scrollElement = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollElement) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
     }
-  }, [messages]);
+  }, [isUserScrolling]);
+
+  // Handle user scroll
+  const handleScroll = useCallback((e: Event) => {
+    const target = e.target as HTMLElement;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    
+    // If user scrolled up more than 100px, stop auto-scroll
+    if (distanceFromBottom > 100) {
+      setIsUserScrolling(true);
+    } else {
+      setIsUserScrolling(false);
+    }
+    
+    // Reset after inactivity
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (distanceFromBottom <= 100) {
+        setIsUserScrolling(false);
+      }
+    }, 1500);
+  }, []);
+
+  // Attach scroll listener
+  useEffect(() => {
+    const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll);
+      return () => scrollContainer.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Clear Chat Button */}
+      {messages.length > 0 && (
+        <div className="flex justify-end px-4 py-2 border-b border-border/30">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive gap-2">
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">{t('actions.clear')}</span>
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="glass-strong">
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('chat.clearConfirmTitle', 'مسح المحادثة؟')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('chat.clearConfirmDesc', 'سيتم حذف جميع الرسائل نهائياً. هل أنت متأكد؟')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                <AlertDialogAction 
+                  onClick={onClearChat}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {t('actions.clear')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
+
       <ScrollArea className="flex-1 custom-scrollbar" ref={scrollRef}>
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           {messages.length === 0 ? (

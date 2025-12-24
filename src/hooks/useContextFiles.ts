@@ -1,4 +1,4 @@
-// Final Build Version: 2.2.0 - Stable Deployment
+// Final Build Version: 3.0.0 - Stable Deployment
 import { useState, useCallback } from 'react';
 import type { ContextFile } from '@/types';
 
@@ -11,6 +11,8 @@ const DEMO_FILES: ContextFile[] = [
     size: 2048,
     type: 'markdown',
     lastModified: new Date(),
+    isLoading: false,
+    isSelected: true,
     content: `# Project Overview
 
 ## Introduction
@@ -35,6 +37,8 @@ The system uses a modern microservices architecture with:
     size: 4096,
     type: 'json',
     lastModified: new Date(),
+    isLoading: false,
+    isSelected: false,
     content: `{
   "api_version": "2.0",
   "endpoints": [
@@ -62,6 +66,8 @@ The system uses a modern microservices architecture with:
     size: 1536,
     type: 'text',
     lastModified: new Date(),
+    isLoading: false,
+    isSelected: false,
     content: `User Guide - AI Context Engine
 
 Getting Started:
@@ -149,7 +155,9 @@ export function useContextFiles(filesApiPath: string = '/api/files') {
         size: f.size,
         type: getFileType(f.name),
         lastModified: new Date(f.lastModified),
-        content: undefined, // Will be loaded on demand
+        content: undefined,
+        isLoading: false,
+        isSelected: false,
       }));
 
       setFiles(serverFiles);
@@ -183,18 +191,25 @@ export function useContextFiles(filesApiPath: string = '/api/files') {
   }, [filesApiPath]);
 
   const loadFileContent = useCallback(async (fileId: string) => {
-    setIsLoading(true);
+    // Set loading state for specific file
+    setFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, isLoading: true } : f
+    ));
     
     const file = files.find(f => f.id === fileId);
     if (!file) {
-      setIsLoading(false);
+      setFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, isLoading: false } : f
+      ));
       return;
     }
 
     // If content is already loaded (demo files), just select it
     if (file.content) {
       setSelectedFile(file);
-      setIsLoading(false);
+      setFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, isLoading: false } : f
+      ));
       return;
     }
 
@@ -215,22 +230,42 @@ export function useContextFiles(filesApiPath: string = '/api/files') {
 
       const data: FileContentResponse = await response.json();
       
-      const updatedFile = { ...file, content: data.content };
+      const updatedFile = { ...file, content: data.content, isLoading: false };
       setFiles(prev => prev.map(f => f.id === fileId ? updatedFile : f));
       setSelectedFile(updatedFile);
     } catch (error) {
       console.warn('Failed to load file content:', error);
       // Still select the file but without content
+      setFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, isLoading: false } : f
+      ));
       setSelectedFile(file);
-    } finally {
-      setIsLoading(false);
     }
   }, [files, filesApiPath]);
+
+  // Toggle file selection for context
+  const toggleFileSelection = useCallback((fileId: string) => {
+    setFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, isSelected: !f.isSelected } : f
+    ));
+  }, []);
+
+  // Select all files
+  const selectAllFiles = useCallback(() => {
+    setFiles(prev => prev.map(f => ({ ...f, isSelected: true })));
+  }, []);
+
+  // Deselect all files
+  const deselectAllFiles = useCallback(() => {
+    setFiles(prev => prev.map(f => ({ ...f, isSelected: false })));
+  }, []);
 
   const addFile = useCallback((file: Omit<ContextFile, 'id'>) => {
     const newFile: ContextFile = {
       ...file,
       id: crypto.randomUUID(),
+      isLoading: false,
+      isSelected: false,
     };
     setFiles(prev => [...prev, newFile]);
   }, []);
@@ -242,9 +277,13 @@ export function useContextFiles(filesApiPath: string = '/api/files') {
     }
   }, [selectedFile]);
 
+  // Get ONLY selected files with content for context
   const getActiveContextContent = useCallback(() => {
-    return files.filter(f => f.content);
+    return files.filter(f => f.isSelected && f.content);
   }, [files]);
+
+  // Get count of selected files
+  const selectedCount = files.filter(f => f.isSelected).length;
 
   return {
     files,
@@ -253,8 +292,12 @@ export function useContextFiles(filesApiPath: string = '/api/files') {
     isSyncing,
     lastError,
     isUsingDemoFiles,
+    selectedCount,
     syncFiles,
     loadFileContent,
+    toggleFileSelection,
+    selectAllFiles,
+    deselectAllFiles,
     addFile,
     removeFile,
     setSelectedFile,
