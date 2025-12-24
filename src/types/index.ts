@@ -24,6 +24,7 @@ export interface ContextFile {
   content?: string;
   lastModified: Date;
   isLoading?: boolean;
+  isSelected?: boolean;
 }
 
 export interface ServerStatus {

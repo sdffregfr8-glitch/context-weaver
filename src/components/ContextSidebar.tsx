@@ -9,11 +9,14 @@ import {
   File,
   FileJson,
   FileCode,
-  Loader2
+  Loader2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { ContextFile } from '@/types';
 
 interface ContextSidebarProps {
@@ -21,10 +24,12 @@ interface ContextSidebarProps {
   selectedFile: ContextFile | null;
   isOpen: boolean;
   isSyncing: boolean;
+  selectedCount: number;
   onToggle: () => void;
   onSelectFile: (file: ContextFile) => void;
   onDeleteFile: (fileId: string) => void;
   onSync: () => void;
+  onToggleSelection: (fileId: string) => void;
 }
 
 const getFileIcon = (type: string) => {
@@ -49,10 +54,12 @@ export function ContextSidebar({
   selectedFile,
   isOpen,
   isSyncing,
+  selectedCount,
   onToggle,
   onSelectFile,
   onDeleteFile,
   onSync,
+  onToggleSelection,
 }: ContextSidebarProps) {
   const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
@@ -73,7 +80,7 @@ export function ContextSidebar({
       animate={isOpen ? 'open' : 'closed'}
       variants={sidebarVariants}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="h-full glass-strong flex flex-col border-e border-border/50"
+      className="h-full glass-strong flex flex-col border-e border-border/50 backdrop-blur-xl"
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border/50">
@@ -88,6 +95,11 @@ export function ContextSidebar({
             >
               <FileText className="h-5 w-5 text-primary" />
               <span className="font-semibold">{t('sidebar.contexts')}</span>
+              {selectedCount > 0 && (
+                <span className="px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary">
+                  {selectedCount}
+                </span>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -156,6 +168,7 @@ export function ContextSidebar({
               files.map((file) => {
                 const FileIcon = getFileIcon(file.type);
                 const isSelected = selectedFile?.id === file.id;
+                const isChecked = file.isSelected ?? false;
 
                 return (
                   <motion.div
@@ -166,7 +179,6 @@ export function ContextSidebar({
                     exit={{ opacity: 0, scale: 0.9 }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => onSelectFile(file)}
                     className={`
                       group relative cursor-pointer rounded-lg p-3 transition-colors
                       ${isSelected 
@@ -176,17 +188,36 @@ export function ContextSidebar({
                     `}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`
-                        shrink-0 p-2 rounded-lg
-                        ${isSelected ? 'bg-primary/30' : 'bg-secondary'}
-                      `}>
-                        <FileIcon className="h-4 w-4" />
+                      {/* Checkbox for selection */}
+                      {isOpen && (
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={() => onToggleSelection(file.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0"
+                        />
+                      )}
+
+                      <div 
+                        className={`
+                          shrink-0 p-2 rounded-lg cursor-pointer
+                          ${isSelected ? 'bg-primary/30' : 'bg-secondary'}
+                          ${file.isLoading ? 'animate-pulse' : ''}
+                        `}
+                        onClick={() => onSelectFile(file)}
+                      >
+                        {file.isLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileIcon className="h-4 w-4" />
+                        )}
                       </div>
 
                       {isOpen && (
                         <motion.div
                           variants={contentVariants}
                           className="flex-1 min-w-0"
+                          onClick={() => onSelectFile(file)}
                         >
                           <p className="text-sm font-medium truncate">
                             {file.name}
@@ -238,7 +269,7 @@ export function ContextSidebar({
           className="p-3 border-t border-border/50"
         >
           <p className="text-xs text-muted-foreground text-center">
-            {t('sidebar.fileCount', { count: files.length })}
+            {t('sidebar.fileCount', { count: files.length })} • {selectedCount} {t('sidebar.selected', 'مختار')}
           </p>
         </motion.div>
       )}
